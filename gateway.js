@@ -3,6 +3,7 @@ import https from 'node:https';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { createFlintSecurity } from './FlintSecurity/index.js';
 
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'];
 function cleanHeaders(headers) {
@@ -46,6 +47,7 @@ export function createGateway(config = {}) {
   for (const value of [timeoutMs, maxBodyBytes]) if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Proxy limits must be positive integers');
   if (rateLimit && (!Number.isSafeInteger(rateLimit.requests) || rateLimit.requests < 1 || !Number.isSafeInteger(rateLimit.windowMs) || rateLimit.windowMs < 1)) throw new Error('rateLimit requires positive integer requests and windowMs');
   const clients = new Map();
+  const security = createFlintSecurity(config.security);
   let lastSweep = 0;
 
   return async function gateway(request, response, pathname) {
@@ -84,6 +86,8 @@ export function createGateway(config = {}) {
         return { handled: true };
       }
     }
+    if (await security(request, response, pathname)) return { handled: true };
+    if (pathname === '/healthz') return { handled: false };
     if (Object.hasOwn(redirects, pathname)) {
       response.writeHead(308, { Location: redirects[pathname], 'Content-Length': 0 });
       response.end();
@@ -102,6 +106,10 @@ export function createGateway(config = {}) {
       headers.host = target.host;
       headers['x-forwarded-for'] = request.socket.remoteAddress;
       headers['x-forwarded-proto'] = request.socket.encrypted ? 'https' : 'http';
+      if (headers.cookie) {
+        headers.cookie = headers.cookie.split(';').filter(value => !value.trim().startsWith('flint_clearance=')).join(';');
+        if (!headers.cookie.trim()) delete headers.cookie;
+      }
       // Local credentials authorize this gateway, never an upstream application.
       if (credential) delete headers.authorization;
       await new Promise(resolve => {

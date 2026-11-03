@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="flint-security" content="__FLINT_DATA__">
+  <title>Verify your connection · Flint Security</title>
+  <link rel="stylesheet" href="/__flint_security/style.css">
+  <script src="/__flint_security/client.js" defer></script>
+</head>
+<body>
+  <header class="banner">
+    <div class="banner-inner">
+      <div class="stop" role="img" aria-label="Stop">STOP</div>
+      <h1>Flint Security</h1>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>Please verify your connection</h2>
+      <p class="description">This site uses flint security to verify connections from other parties. Please click the verification box to prove you are not a malicious bot.</p>
+      <div class="verification">
+        <label for="verify"><input id="verify" type="checkbox"><span>Verify my connection</span></label>
+      </div>
+      <div id="turnstile"></div>
+      <p id="status" role="status" aria-live="polite">Please tick the box above to continue.</p>
+      <button id="retry" type="button" hidden>Try again</button>
+      <noscript><p>Enable JavaScript to complete the connection verification.</p></noscript>
+    </section>
+    <footer>Protected by Flint Security</footer>
+  </main>
+</body>
+</html>

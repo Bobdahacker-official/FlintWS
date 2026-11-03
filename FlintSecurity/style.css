@@ -1,0 +1,19 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: white; color: #222; font-family: Arial, Helvetica, sans-serif; font-size: 16px; }
+.banner { width: 100%; background: #bb1010; border-bottom: 4px solid #850000; color: white; }
+.banner-inner { max-width: 800px; margin: auto; display: flex; align-items: center; gap: 22px; padding: 24px 30px; }
+.stop { flex-shrink: 0; width: 66px; height: 66px; display: grid; place-items: center; background: white; color: #bb1010; font-size: 16px; font-weight: bold; clip-path: polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%); }
+h1 { margin: 0; font-size: 30px; }
+main { max-width: 800px; margin: 48px auto; padding: 0 30px; }
+h2 { font-size: 24px; margin: 0 0 24px; }
+.description { line-height: 1.8; margin: 0 0 30px; max-width: 690px; }
+.verification { display: inline-block; min-width: 290px; padding: 22px 24px; background: #f7f7f7; border: 1px solid #bbb; border-radius: 2px; }
+label { display: flex; align-items: center; gap: 15px; cursor: pointer; }
+input { width: 26px; height: 26px; margin: 0; accent-color: #bb1010; cursor: pointer; }
+#status { color: #555; line-height: 1.6; font-size: 14px; margin: 22px 0; }
+#turnstile:not(:empty) { margin-top: 20px; }
+button { font: inherit; padding: 8px 18px; color: #222; background: #eee; border: 1px solid #999; border-radius: 2px; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid #175baa; outline-offset: 4px; }
+footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid #ddd; color: #777; font-size: 12px; }
+body.verified #status { color: #236328; }
+@media (max-width: 520px) { .banner-inner { padding: 20px; gap: 16px; } h1 { font-size: 26px; } main { padding: 0 20px; margin-top: 32px; } h2 { font-size: 21px; } .verification { min-width: 0; width: 100%; } }

@@ -4,6 +4,8 @@ FlintWS serves static websites and proxies application traffic with configurable
 
 See [gateway configuration and research sources](FEATURES.md) for the new routing features. Set `FLINTWS_CONFIG=/path/to/config.json` to load gateway settings at startup.
 
+[Flint Security](FlintSecurity/README.md) now verifies browser connections before serving site content or proxying application requests. It is enabled by default, uses real server-validated challenges, and includes optional Cloudflare Turnstile integration. Its plain white verification page uses a red STOP banner and a checkbox. The readiness endpoint remains available to probes.
+
 ## Run it
 
 ```sh

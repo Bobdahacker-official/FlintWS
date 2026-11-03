@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { startServer } from '../server.js';
 
 async function runningServer(options = {}) {
@@ -13,7 +14,7 @@ async function runningServer(options = {}) {
   await writeFile(path.join(root, 'large.txt'), 'FlintWS compression sample.\n'.repeat(200));
   await mkdir(path.join(root, 'docs'));
   await writeFile(path.join(root, 'docs', 'index.html'), 'Documentation');
-  const server = await startServer({ ...options, host: '127.0.0.1', port: 0, root, logger: { info() {} } });
+  const server = await startServer({ ...options, config: { security: { enabled: false }, ...options.config }, host: '127.0.0.1', port: 0, root, logger: { info() {} } });
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   return { server, baseUrl, root };
@@ -165,4 +166,56 @@ test('virtual hosts, redirects, authentication and rate limiting are configurabl
   const blocked = await fetch(limited.baseUrl);
   assert.equal(blocked.status, 429);
   assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+});
+
+test('FlintSecurity gates content, verifies unique work, rejects replay and binds clearance', async (t) => {
+  const { server, baseUrl } = await runningServer({ config: { security: { difficulty: 12, clearanceSeconds: 30 } } });
+  t.after(() => server.close());
+  const page = await fetch(baseUrl, { headers: { Accept: 'text/html' } });
+  assert.equal(page.status, 403);
+  assert.equal(page.headers.get('cache-control'), 'private, no-store');
+  const html = await page.text();
+  assert.match(html, /This site uses flint security to verify connections from other parties/);
+  assert.match(html, /aria-label="Stop"/);
+  assert.doesNotMatch(html, /FlintWS test page/);
+  const encoded = /name="flint-security" content="([^"]+)"/.exec(html)[1];
+  const data = JSON.parse(Buffer.from(encoded, 'base64url'));
+  const verify = (body, origin = baseUrl) => fetch(`${baseUrl}/__flint_security/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body)
+  });
+  assert.equal((await fetch(`${baseUrl}/data.json`)).status, 403);
+  assert.equal((await fetch(`${baseUrl}/healthz`)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/__flint_security/client.js`)).status, 200);
+  assert.equal((await verify({ challenge: data.challenge, counter: 0 }, 'https://outside.invalid')).status, 403);
+  assert.equal((await verify({ challenge: `${data.challenge}tampered`, counter: 0 })).status, 403);
+  let counter = 0;
+  for (;;) {
+    const hash = createHash('sha256').update(`${data.challenge}:${counter}`).digest();
+    const bytes = Math.floor(data.bits / 8);
+    if (hash.subarray(0, bytes).every(value => value === 0) && (data.bits % 8 === 0 || hash[bytes] < 2 ** (8 - data.bits % 8))) break;
+    counter++;
+  }
+  const passed = await verify({ challenge: data.challenge, counter });
+  assert.equal(passed.status, 200);
+  assert.equal((await passed.json()).verified, true);
+  const setCookie = passed.headers.get('set-cookie');
+  assert.match(setCookie, /HttpOnly; SameSite=Strict; Max-Age=30/);
+  const cookie = setCookie.split(';')[0];
+  assert.equal((await verify({ challenge: data.challenge, counter })).status, 403);
+  const allowed = await fetch(baseUrl, { headers: { Cookie: cookie } });
+  assert.equal(allowed.status, 200);
+  assert.match(await allowed.text(), /FlintWS test page/);
+  assert.equal((await fetch(baseUrl, { headers: { Cookie: cookie, 'User-Agent': 'different-client' } })).status, 403);
+  assert.equal((await fetch(baseUrl, { headers: { Cookie: `${cookie}tampered` } })).status, 403);
+});
+
+test('FlintSecurity blocks upstream requests before they reach the application', async (t) => {
+  let reached = 0;
+  const backend = http.createServer((req, res) => { reached++; res.end('protected'); });
+  await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve));
+  t.after(() => backend.close());
+  const { server, baseUrl } = await runningServer({ config: { security: {}, routes: [{ prefix: '/private', upstreams: [`http://127.0.0.1:${backend.address().port}`] }] } });
+  t.after(() => server.close());
+  assert.equal((await fetch(`${baseUrl}/private`, { method: 'POST', body: 'bypass attempt' })).status, 403);
+  assert.equal(reached, 0);
 });

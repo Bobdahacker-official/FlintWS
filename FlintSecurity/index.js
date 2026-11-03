@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { createRequestInspector } from './rules.js';
 
 const prefix = '/__flint_security';
 const assets = new Map(await Promise.all([
@@ -36,6 +37,8 @@ export function createFlintSecurity(options = {}) {
   const challengeSeconds = positiveInteger(options.challengeSeconds ?? 120, 10, 300, 'security.challengeSeconds');
   const clearanceSeconds = positiveInteger(options.clearanceSeconds ?? 1800, 30, 86400, 'security.clearanceSeconds');
   const maxClients = positiveInteger(options.maxClients ?? 10000, 10, 100000, 'security.maxClients');
+  const requestsPerMinute = positiveInteger(options.requestsPerMinute ?? 240, 1, 100000, 'security.requestsPerMinute');
+  const inspect = createRequestInspector(options.disabledRules);
   const signingKey = options.signingKeyEnv ? process.env[options.signingKeyEnv] : null;
   if (options.signingKeyEnv && (!signingKey || Buffer.byteLength(signingKey) < 32)) throw new Error('Security signing key must contain at least 32 bytes');
   const key = signingKey ?? randomBytes(32);
@@ -58,6 +61,13 @@ export function createFlintSecurity(options = {}) {
   let sweepAt = 0;
 
   return async function intercept(request, response, pathname) {
+    const reason = inspect(request);
+    if (reason) {
+      response.setHeader('X-Flint-Security-Rule', reason);
+      response.setHeader('Connection', 'close');
+      reject(response, 403, 'Request blocked by Flint Security');
+      return true;
+    }
     // The readiness endpoint exposes no protected website content.
     if (pathname === '/healthz' && ['GET', 'HEAD'].includes(request.method)) return false;
     if (assets.has(pathname) && ['GET', 'HEAD'].includes(request.method)) {
@@ -75,14 +85,20 @@ export function createFlintSecurity(options = {}) {
     const binding = hash(JSON.stringify([ip, request.headers['user-agent'] ?? '', request.headers.host ?? '']));
     const cookie = String(request.headers.cookie ?? '').split(';').map(value => value.trim()).find(value => value.startsWith('flint_clearance='))?.slice('flint_clearance='.length);
     const clearance = decode(cookie);
-    if (!pathname.startsWith(prefix) && clearance?.type === 'clearance' && clearance.exp > now && clearance.exp <= now + clearanceSeconds * 1000 && equal(clearance.binding, binding)) return false;
 
     let client = clients.get(ip);
     if (!client || client.reset <= now) {
       if (clients.size >= maxClients && !clients.has(ip)) { reject(response, 503, 'Verification capacity reached'); return true; }
-      client = { count: 0, reset: now + 60000 };
+      client = { count: 0, requests: 0, reset: now + 60000 };
       clients.set(ip, client);
     }
+    if (++client.requests > requestsPerMinute) {
+      response.setHeader('Retry-After', Math.ceil((client.reset - now) / 1000));
+      response.setHeader('Connection', 'close');
+      reject(response, 429, 'Connection request limit reached');
+      return true;
+    }
+    if (!pathname.startsWith(prefix) && clearance?.type === 'clearance' && clearance.exp > now && clearance.exp <= now + clearanceSeconds * 1000 && equal(clearance.binding, binding)) return false;
     if (++client.count > 60) {
       response.setHeader('Retry-After', Math.ceil((client.reset - now) / 1000));
       response.setHeader('Connection', 'close');

@@ -26,6 +26,12 @@ Signing keys are generated with cryptographic randomness at process startup. To 
 
 ## Verification protocol
 
+Before accepting clearance, Flint Security inspects request targets and User-Agent headers. Self-identified attack scanners are denied without receiving a solvable challenge. Rules reject sensitive-file probes, directory traversal, and common SQL, script, and shell injection patterns in URLs, including nested URL encoding. The response identifies the matching rule in `X-Flint-Security-Rule`. These checks apply even when a valid clearance cookie is present.
+
+All protected requests, including verified requests, share a per-socket-IP request budget (240 per minute by default). Set `requestsPerMinute` inside `security` to change it. Readiness probes and verification assets are exempt. Separately, unverified challenge requests remain limited to 60 per minute.
+
+Rules inspect headers and URLs, not application request bodies. They detect known patterns rather than determining intent. Applications that intentionally accept source code in query strings can disable individual rules using `disabledRules`: recognized names are `scanner-agent`, `sensitive-path`, `path-traversal`, `sql-injection`, `script-injection`, and `shell-injection`. User agents are client-controlled; changing the agent does not disable URL inspection, and proof-of-work is not human identification.
+
 - A cryptographically random challenge ID, visitor binding, difficulty, and expiry are signed with HMAC-SHA256. Challenges expire after two minutes by default.
 - The browser uses a Web Worker to find a SHA-256 nonce satisfying the issued difficulty. The server independently checks the proof. The checkbox alone never grants clearance.
 - A challenge is consumed before asynchronous provider validation. Reuse, tampering, expired challenges, cross-origin submissions, and changes to the connection binding are rejected.

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check gateway.js && node --check FlintSecurity/index.js && node --check FlintSecurity/client.js && node --check FlintSecurity/worker.js && node --check test/server.test.js"
+    "check": "node --check server.js && node --check gateway.js && node --check FlintSecurity/index.js && node --check FlintSecurity/rules.js && node --check FlintSecurity/client.js && node --check FlintSecurity/worker.js && node --check test/server.test.js"
   },
   "engines": {
     "node": ">=20"

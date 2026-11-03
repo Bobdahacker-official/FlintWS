@@ -1,0 +1,15 @@
+{
+  "name": "flintws",
+  "version": "1.0.0",
+  "description": "A fast, secure static web server with health and service information endpoints.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check test/server.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

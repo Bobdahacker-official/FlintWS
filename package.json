@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check test/server.test.js"
+    "check": "node --check server.js && node --check gateway.js && node --check test/server.test.js"
   },
   "engines": {
     "node": ">=20"

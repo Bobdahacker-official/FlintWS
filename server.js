@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { constants } from 'node:fs';
-import { open, realpath, stat } from 'node:fs/promises';
+import { open, readFile, realpath, stat } from 'node:fs/promises';
+import { createGateway } from './gateway.js';
 import { pipeline } from 'node:stream/promises';
 import { createBrotliCompress, createGzip, constants as zlibConstants } from 'node:zlib';
 import path from 'node:path';
@@ -207,10 +208,11 @@ async function serveStatic(response, root, pathname, method, requestHeaders, { s
 
 export function createFlintServer({ root = process.env.FLINTWS_ROOT ?? defaultPublicRoot, logger = console,
   spa = process.env.FLINTWS_SPA === 'true', cacheSeconds = Number(process.env.FLINTWS_CACHE_SECONDS ?? 0),
-  corsOrigin = process.env.FLINTWS_CORS_ORIGIN } = {}) {
+  corsOrigin = process.env.FLINTWS_CORS_ORIGIN, config = {} } = {}) {
   if (!Number.isSafeInteger(cacheSeconds) || cacheSeconds < 0) throw new Error('FLINTWS_CACHE_SECONDS must be a nonnegative integer');
   if (corsOrigin) http.validateHeaderValue('Access-Control-Allow-Origin', corsOrigin);
   const publicRoot = path.resolve(root);
+  const gateway = createGateway(config);
   const server = http.createServer({ maxHeaderSize: 16384, headersTimeout: 15000, requestTimeout: 30000, keepAliveTimeout: 5000 }, async (request, response) => {
     const startedAt = process.hrtime.bigint();
     const method = request.method ?? 'GET';
@@ -222,6 +224,9 @@ export function createFlintServer({ root = process.env.FLINTWS_ROOT ?? defaultPu
       durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1e6).toFixed(2))
     })));
     try {
+      const pathname = requestPath(request.url ?? '/');
+      const dispatch = await gateway(request, response, pathname);
+      if (dispatch.handled) return;
       if (corsOrigin) {
         response.setHeader('Access-Control-Allow-Origin', corsOrigin);
         if (method === 'OPTIONS') {
@@ -238,7 +243,6 @@ export function createFlintServer({ root = process.env.FLINTWS_ROOT ?? defaultPu
         return;
       }
 
-      const pathname = requestPath(request.url ?? '/');
       if (pathname === '/healthz') {
         sendJson(response, 200, { status: 'ok', service: SERVER_NAME, version: SERVER_VERSION }, method);
         statusCode = 200;
@@ -252,7 +256,7 @@ export function createFlintServer({ root = process.env.FLINTWS_ROOT ?? defaultPu
         statusCode = 200;
         return;
       }
-      statusCode = await serveStatic(response, publicRoot, pathname, method, request.headers, { spa, cacheSeconds });
+      statusCode = await serveStatic(response, dispatch.root ?? publicRoot, pathname, method, request.headers, { spa, cacheSeconds });
     } catch (error) {
       statusCode = error.statusCode ?? (['ENOENT', 'ENOTDIR', 'EACCES', 'ELOOP'].includes(error.code) ? 404 : 500);
       if (statusCode === 500 && error.code !== 'ERR_STREAM_PREMATURE_CLOSE') logger.error?.(JSON.stringify({ error: error.message, code: error.code }));
@@ -275,7 +279,11 @@ export async function startServer({ host = process.env.HOST ?? DEFAULT_HOST, por
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer between 0 and 65535');
   const publicRoot = await realpath(root);
   if (!(await stat(publicRoot)).isDirectory()) throw new Error('FLINTWS_ROOT must be a directory');
-  const server = createFlintServer({ ...options, root: publicRoot, logger });
+  const config = options.config ?? (process.env.FLINTWS_CONFIG ? JSON.parse(await readFile(process.env.FLINTWS_CONFIG, 'utf8')) : {});
+  for (const documentRoot of Object.values(config.virtualHosts ?? {})) {
+    if (!(await stat(documentRoot)).isDirectory()) throw new Error('Virtual host document roots must be directories');
+  }
+  const server = createFlintServer({ ...options, config, root: publicRoot, logger });
   return new Promise((resolve, reject) => {
     const onError = (error) => {
       server.removeListener('listening', onListening);

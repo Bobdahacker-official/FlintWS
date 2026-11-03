@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import http from 'node:http';
 import { startServer } from '../server.js';
 
 async function runningServer(options = {}) {
@@ -15,7 +16,7 @@ async function runningServer(options = {}) {
   const server = await startServer({ ...options, host: '127.0.0.1', port: 0, root, logger: { info() {} } });
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
-  return { server, baseUrl };
+  return { server, baseUrl, root };
 }
 
 test('serves the index document and content metadata', async (t) => {
@@ -97,4 +98,71 @@ test('rejects unsupported methods, missing files, and traversal attempts', async
   const traversal = await fetch(`${baseUrl}/%2e%2e/server.js`);
   assert.equal(traversal.status, 404);
   assert.equal((await fetch(`${baseUrl}/.env`)).status, 404);
+});
+
+test('proxies request bodies, balances upstreams, filters forwarded headers and enforces limits', async (t) => {
+  const origins = [];
+  for (const name of ['one', 'two']) {
+    const backend = http.createServer(async (req, res) => {
+      if (req.url === '/service/slow') return;
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ name, body, url: req.url, forwarded: req.headers['x-forwarded-for'], credential: req.headers.authorization }));
+    });
+    await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve));
+    origins.push(`http://127.0.0.1:${backend.address().port}`);
+    t.after(() => { backend.closeAllConnections(); backend.close(); });
+  }
+  const { server, baseUrl } = await runningServer({ config: {
+    routes: [{ prefix: '/service', upstreams: origins }], proxyTimeoutMs: 200, maxBodyBytes: 32
+  } });
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  for (const name of ['one', 'two']) {
+    const response = await fetch(`${baseUrl}/service/echo?q=1`, {
+      method: 'POST', body: 'real body', headers: { 'X-Forwarded-For': 'spoofed' }
+    });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.name, name);
+    assert.equal(result.body, 'real body');
+    assert.equal(result.url, '/service/echo?q=1');
+    assert.equal(result.forwarded, '127.0.0.1');
+  }
+  assert.equal((await fetch(`${baseUrl}/service/echo`, { method: 'POST', body: 'x'.repeat(33) })).status, 413);
+  assert.equal((await fetch(`${baseUrl}/service/slow`)).status, 504);
+  assert.equal((await fetch(`${baseUrl}/services`)).status, 404);
+});
+
+test('virtual hosts, redirects, authentication and rate limiting are configurable', async (t) => {
+  const site = await runningServer();
+  t.after(() => site.server.close());
+  const hosted = await runningServer({ config: { virtualHosts: { 'site.local': site.root }, redirects: { '/old': '/new' } } });
+  t.after(() => hosted.server.close());
+  const host = { Host: 'site.local' };
+  const hostRequest = pathname => new Promise((resolve, reject) => {
+    http.get(`${hosted.baseUrl}${pathname}`, { headers: host }, response => {
+      response.resume();
+      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers }));
+    }).on('error', reject);
+  });
+  assert.equal((await hostRequest('/')).status, 200);
+  assert.equal((await fetch(hosted.baseUrl)).status, 421);
+  const redirect = await hostRequest('/old');
+  assert.equal(redirect.status, 308);
+  assert.equal(redirect.headers.location, '/new');
+  process.env.FLINTWS_TEST_PASSWORD = 'test-only-secret';
+  t.after(() => { delete process.env.FLINTWS_TEST_PASSWORD; });
+  const secured = await runningServer({ config: { auth: { username: 'reader', passwordEnv: 'FLINTWS_TEST_PASSWORD' } } });
+  t.after(() => secured.server.close());
+  const denied = await fetch(secured.baseUrl);
+  assert.equal(denied.status, 401);
+  assert.match(denied.headers.get('www-authenticate'), /^Basic/);
+  assert.equal((await fetch(secured.baseUrl, { headers: { Authorization: `Basic ${Buffer.from('reader:test-only-secret').toString('base64')}` } })).status, 200);
+  const limited = await runningServer({ config: { rateLimit: { requests: 1, windowMs: 60000 } } });
+  t.after(() => limited.server.close());
+  assert.equal((await fetch(limited.baseUrl)).status, 200);
+  const blocked = await fetch(limited.baseUrl);
+  assert.equal(blocked.status, 429);
+  assert.ok(Number(blocked.headers.get('retry-after')) > 0);
 });

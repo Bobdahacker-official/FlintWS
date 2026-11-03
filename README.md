@@ -1,6 +1,8 @@
 # FlintWS
 
-FlintWS is a small HTTP server for serving a static web root with operational endpoints.
+FlintWS serves static websites and proxies application traffic with configurable load balancing, virtual hosts, authentication, redirects, and request limits.
+
+See [gateway configuration and research sources](FEATURES.md) for the new routing features. Set `FLINTWS_CONFIG=/path/to/config.json` to load gateway settings at startup.
 
 ## Run it
 

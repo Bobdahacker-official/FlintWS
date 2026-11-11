@@ -34,3 +34,5 @@ Research informing this revision:
 - https://ethereum.org/developers/docs/design-and-ux/heuristics-for-web3/ — visible system status, scannable key information, wallet confirmation and explorer links.
 - https://www.nngroup.com/articles/progressive-disclosure/ — prioritize frequent actions; disclose secondary details when needed.
 - https://re.public.polimi.it/retrieve/4473c0d5-ea0a-4116-8549-5638f804557b/computers-14-00046-with-cover.pdf — task-based Web3 interfaces, familiar interaction patterns and clear state visualization.
+
+AI-versus-human design research is mixed and depends on what is evaluated. [Design Creativity Bench](https://arxiv.org/html/2610.11539v1) reports more repetitive model-generated UIs despite high brief adherence. [Worthy et al.](https://publications.ergonomics.org.uk/uploads/How-well-can-generative-AI-design-and-evaluate-user-interfaces.pdf) found comparable pragmatic ratings in a small static-image study but poor agreement between AI and human evaluations. Neither establishes that one visual style is universally more human. The supplied references and task requirements determine this implementation's style.

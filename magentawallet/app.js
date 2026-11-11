@@ -51,16 +51,44 @@ setInterval(()=>{if(address&&!busy&&!reviewing&&document.visibilityState==='visi
 $('asset-search').oninput=()=>{const q=$('asset-search').value.trim().toLowerCase();let visible=0;document.querySelectorAll('[data-search]').forEach(row=>{row.hidden=!row.dataset.search.includes(q);if(!row.hidden)visible++;});$('no-assets').hidden=visible>0;};
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n);
 function freshQuote(symbol){const q=quotes.get(symbol);return q&&Date.now()-q.at<90000?q:null;}
-function renderValuation(){const eth=freshQuote('ETH'),usdc=freshQuote('USDC');if(!address||!balancesReady)return;if(eth&&usdc){const value=Number(format(balances.ETH))*eth.price+Number(format(balances.USDC,6))*usdc.price;$('hero-balance').textContent=money(value);$('valuation-meta').textContent='USD estimate · Coinbase market prices';}else{$('hero-balance').textContent='Unavailable';$('valuation-meta').textContent='USD estimate requires current market prices';}$('eth-value').textContent=eth?money(Number(format(balances.ETH))*eth.price):'USD value unavailable';$('usdc-value').textContent=usdc?money(Number(format(balances.USDC,6))*usdc.price):'USD value unavailable';}
-let marketBusy=false;
-async function fetchQuote(symbol){let price,change=null;const at=Date.now();if(symbol==='USDC'){const r=await fetch('https://api.coinbase.com/v2/prices/USDC-USD/spot',{credentials:'omit',signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('Price feed returned '+r.status);const data=await r.json();price=Number(data.data?.amount);}else{const r=await fetch(`https://api.exchange.coinbase.com/products/${symbol}-USD/stats`,{credentials:'omit',signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('Price feed returned '+r.status);const data=await r.json();price=Number(data.last);const open=Number(data.open);if(open>0)change=(price-open)/open*100;}if(!Number.isFinite(price)||price<=0)throw Error('Invalid market price');quotes.set(symbol,{price,change,at});}
+function renderValuation(){const eth=freshQuote('ETH'),usdc=freshQuote('USDC');if(!address||!balancesReady)return;if(eth&&usdc){const value=Number(format(balances.ETH))*eth.price+Number(format(balances.USDC,6))*usdc.price;$('hero-balance').textContent=money(value);$('valuation-meta').textContent=`USD estimate · ${eth.source===usdc.source?eth.source:'Exchange'} prices`;}else{$('hero-balance').textContent='Unavailable';$('valuation-meta').textContent='USD estimate requires current market prices';}$('eth-value').textContent=eth?money(Number(format(balances.ETH))*eth.price):'USD value unavailable';$('usdc-value').textContent=usdc?money(Number(format(balances.USDC,6))*usdc.price):'USD value unavailable';}
 function renderMarkets(){const root=$('crypto-markets');root.replaceChildren();for(const [symbol,name] of [['BTC','Bitcoin'],['ETH','Ethereum'],['SOL','Solana'],['USDC','USD Coin']]){const q=freshQuote(symbol),row=document.createElement('div');row.className='market-row';const label=document.createElement('div'),title=document.createElement('strong'),sub=document.createElement('small');title.textContent=name;sub.textContent=symbol;label.append(title,sub);const value=document.createElement('div'),price=document.createElement('strong'),change=document.createElement('small');price.textContent=q?money(q.price):'Unavailable';change.textContent=q?(q.change===null?'USD spot rate':`${q.change>=0?'+':''}${q.change.toFixed(2)}% · 24h`):'Feed could not be reached';if(q?.change!==null&&q)change.className=q.change>=0?'positive':'negative';value.append(price,change);row.append(label,value);root.append(row);}renderValuation();}
-async function refreshMarkets(){if(marketBusy)return;marketBusy=true;$('refresh-markets').disabled=true;try{const results=await Promise.allSettled(['BTC','ETH','SOL','USDC'].map(async symbol=>{try{await fetchQuote(symbol);}catch(e){quotes.delete(symbol);throw e;}}));const ok=results.filter(r=>r.status==='fulfilled').length;$('market-status').textContent=ok?`Coinbase · ${ok}/4 quotes updated ${new Date().toLocaleTimeString()} · refreshes every 30 seconds`:'Market feed unavailable. Check your connection or retry. No cached prices are being presented as live.';renderMarkets();}finally{marketBusy=false;$('refresh-markets').disabled=false;}}
-$('refresh-markets').onclick=refreshMarkets;
+const symbols=['BTC','ETH','SOL','USDC'];
+let marketSocket=null, marketSession=0, marketSource=null, reconnectTimer=null;
+let connectTimer=null, monitorTimer=null, usdcTimer=null, lastMessageAt=0, retryDelay=2000;
+function clearMarketTimers(){clearTimeout(connectTimer);clearInterval(monitorTimer);clearInterval(usdcTimer);clearTimeout(reconnectTimer);}
+function stopMarketStream(){marketSession++;clearMarketTimers();if(marketSocket){marketSocket.onopen=null;marketSocket.onmessage=null;marketSocket.onerror=null;marketSocket.onclose=null;marketSocket.close();marketSocket=null;}}
+function storeQuote(symbol,price,change,session){if(session!==marketSession||!symbols.includes(symbol)||!Number.isFinite(price)||price<=0)return;quotes.set(symbol,{price,change:Number.isFinite(change)?change:null,at:Date.now(),source:marketSource});renderMarkets();const count=symbols.filter(s=>freshQuote(s)).length;$('market-status').textContent=`${marketSource} · ${count}/4 prices · Updated ${new Date().toLocaleTimeString()}`;if((marketSource==='Kraken'?symbols:['BTC','ETH','SOL']).every(s=>freshQuote(s))){clearTimeout(connectTimer);retryDelay=2000;}}
+async function coinbaseUSDC(session){try{const response=await fetch('https://api.coinbase.com/v2/prices/USDC-USD/spot',{credentials:'omit',signal:AbortSignal.timeout(8000)});if(!response.ok)throw Error('USDC price unavailable');const data=await response.json();storeQuote('USDC',Number(data.data?.amount),null,session);}catch{if(session===marketSession){quotes.delete('USDC');renderMarkets();}}}
+function startMarketStream(source='Kraken'){
+  stopMarketStream();const session=marketSession;marketSource=source;quotes.clear();renderMarkets();$('market-status').textContent=`Connecting to ${source}…`;lastMessageAt=Date.now();
+  let failed=false;
+  const fail=()=>{if(failed||session!==marketSession)return;failed=true;if(source==='Kraken'){startMarketStream('Coinbase');}else{stopMarketStream();marketSource=null;quotes.clear();renderMarkets();$('market-status').textContent='Prices disconnected · Reconnecting…';reconnectTimer=setTimeout(()=>startMarketStream('Kraken'),retryDelay);retryDelay=Math.min(retryDelay*2,30000);}};
+  try{marketSocket=new WebSocket(source==='Kraken'?'wss://ws.kraken.com/v2':'wss://ws-feed.exchange.coinbase.com');}catch{fail();return;}
+  const socket=marketSocket;
+  connectTimer=setTimeout(fail,12000);
+  socket.onopen=()=>{if(session!==marketSession)return;try{if(source==='Kraken'){socket.send(JSON.stringify({method:'subscribe',params:{channel:'ticker',symbol:symbols.map(s=>`${s}/USD`),snapshot:true}}));}else{socket.send(JSON.stringify({type:'subscribe',product_ids:['BTC-USD','ETH-USD','SOL-USD'],channels:['ticker','heartbeat']}));coinbaseUSDC(session);usdcTimer=setInterval(()=>coinbaseUSDC(session),30000);}}catch{fail();}};
+  socket.onmessage=event=>{if(session!==marketSession)return;let data;try{data=JSON.parse(event.data);}catch{return;}
+    if(source==='Kraken'){
+      if(data.success===false){fail();return;}
+      if(data.channel==='heartbeat'||data.channel==='status'||data.method==='subscribe')lastMessageAt=Date.now();
+      if(data.channel==='ticker'&&Array.isArray(data.data)){for(const tick of data.data){const symbol=String(tick.symbol).split('/')[0];if(!symbols.includes(symbol)||tick.symbol!==`${symbol}/USD`)continue;const price=Number(tick.last);if(!Number.isFinite(price)||price<=0)continue;lastMessageAt=Date.now();storeQuote(symbol,price,tick.change_pct==null?null:Number(tick.change_pct),session);}}
+    }else{
+      if(data.type==='error'){fail();return;}
+      if(data.type==='heartbeat'||data.type==='subscriptions')lastMessageAt=Date.now();
+      if(data.type==='ticker'&&['BTC-USD','ETH-USD','SOL-USD'].includes(data.product_id)){const price=Number(data.price),open=Number(data.open_24h);if(!Number.isFinite(price)||price<=0)return;lastMessageAt=Date.now();storeQuote(data.product_id.split('-')[0],price,open>0?(price-open)/open*100:null,session);}
+    }
+  };
+  socket.onerror=fail;socket.onclose=fail;
+  monitorTimer=setInterval(()=>{if(session!==marketSession)return;renderMarkets();if(Date.now()-lastMessageAt>30000||symbols.some(s=>quotes.has(s)&&!freshQuote(s)))fail();},5000);
+}
+$('refresh-markets').onclick=()=>{retryDelay=2000;startMarketStream('Kraken');};
+window.addEventListener('online',()=>startMarketStream('Kraken'));
+window.addEventListener('pagehide',stopMarketStream);
+window.addEventListener('pageshow',event=>{if(event.persisted)startMarketStream('Kraken');});
 $('use-max').onclick=()=>{if(!address||!balancesReady){message('Connect your wallet and load balances first.');return;}if($('asset').value==='USDC'){$('amount').value=format(balances.USDC,6);draft=null;}};
 $('download-qr').onclick=()=>{if(!address){$('connect').click();return;}const svg=$('qr').querySelector('svg');if(!svg)return;const blob=new Blob([new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`MagentaWallet-${chains[chainId].name}-${address}.svg`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-refreshMarkets();
-setInterval(()=>{renderMarkets();if(document.visibilityState==='visible')refreshMarkets();},30000);
+startMarketStream('Kraken');
 
 networkLabels();renderWallets();updateAvailable(false);
 })();

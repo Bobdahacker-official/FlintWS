@@ -53,3 +53,19 @@ Sources:
 - https://www.tradingview.com/widget-docs/faq/data/ — free widget stock data is delayed, not universally real-time.
 
 Validation limitation: this execution workspace's outbound network policy denies requests to Coinbase market domains. Consequently the production market requests are implemented against documented endpoints but a successful live feed response was not verified here. TradingView availability is likewise dependent on outbound access. No real funds or user signatures were available; automated transfer checks use injected test providers solely in the external development test script, never in shipped application code. A real-money transfer has not been executed. The optional PHP wrapper was not executed because this environment has no PHP runtime.
+
+## Kraken-first streaming with Coinbase failover
+
+Replaced the 30-second crypto REST polling loop with public WebSockets. Every new connection attempt starts with Kraken `wss://ws.kraken.com/v2`, subscribing to ticker snapshots and trade updates for BTC/USD, ETH/USD, SOL/USD and USDC/USD. Each valid quote immediately refreshes the market list and wallet valuation.
+
+Kraken subscription errors, socket errors/closure, an incomplete initial load after 12 seconds, a 30-second message silence or expired received quotes activate Coinbase `wss://ws-feed.exchange.coinbase.com`. Coinbase subscribes to public ticker and heartbeat channels for BTC-USD, ETH-USD and SOL-USD. Its USDC/USD reference rate uses Coinbase's public spot endpoint every 30 seconds rather than assuming the stablecoin is exactly $1. Failure to obtain that separate USDC rate does not disconnect the healthy BTC/ETH/SOL backup stream.
+
+If both connections fail, retry with exponential delays of 2–30 seconds, always starting with Kraken again. Refresh and browser-online events also restart Kraken first. Session identifiers reject late messages/fetch results from replaced streams. Timers, listeners and sockets are cleaned up on replacement and page departure; back/forward-cache restoration reconnects. Quotes expire after 90 seconds without an update and are cleared when switching providers. Updated both HTML and PHP Content Security Policies to permit only the required public WebSocket and USDC spot endpoints.
+
+Official source references:
+- https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker
+- https://docs.kraken.com/exchange/guides/websockets/introduction
+- https://docs.cdp.coinbase.com/exchange/websocket-feed/overview
+- https://docs.cdp.coinbase.com/exchange/websocket-feed/authentication
+
+Validation: JavaScript syntax and browser tests passed for Kraken-first subscription, incoming price updates, Coinbase fallback, USDC retrieval, rejection of old-session messages, both-feed reconnect, initial timeout, manual restart and silent-stream failover. Controlled WebSocket events and a USDC HTTP fixture were supplied only by the external browser test script; shipped code uses production endpoints. This does not establish successful live connectivity from the restricted execution workspace.

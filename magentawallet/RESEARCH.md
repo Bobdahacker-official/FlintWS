@@ -36,3 +36,20 @@ Research informing this revision:
 - https://re.public.polimi.it/retrieve/4473c0d5-ea0a-4116-8549-5638f804557b/computers-14-00046-with-cover.pdf — task-based Web3 interfaces, familiar interaction patterns and clear state visualization.
 
 AI-versus-human design research is mixed and depends on what is evaluated. [Design Creativity Bench](https://arxiv.org/html/2610.11539v1) reports more repetitive model-generated UIs despite high brief adherence. [Worthy et al.](https://publications.ergonomics.org.uk/uploads/How-well-can-generative-AI-design-and-evaluate-user-interfaces.pdf) found comparable pragmatic ratings in a small static-image study but poor agreement between AI and human evaluations. Neither establishes that one visual style is universally more human. The supplied references and task requirements determine this implementation's style.
+
+## Mainnet payments, market data and responsive layouts
+
+- Payments submit `eth_sendTransaction` to the connected real wallet with explicit sender, chain, recipient, gas allowance and exact integer-unit value or ERC-20 transfer calldata. A returned broadcast hash is saved immediately without relying on a subsequent transaction lookup. Users must approve the payment and have sufficient real funds and ETH for fees.
+- Fixed balance polling invalidating open reviews. Pending receipt updates merge into current history rather than overwriting newly submitted payments.
+- Added all-USDC amount selection and downloadable receiving QR SVGs.
+- Public Coinbase Exchange `/products/{product_id}/stats` provides BTC, ETH and SOL USD prices and calculated 24h changes. Coinbase `/v2/prices/USDC-USD/spot` provides USDC USD valuation. Refresh every 30 seconds while visible; stale or failed prices never become fabricated values. Portfolio USD valuation is informational, using floating-point arithmetic; transfer amounts continue to use exact integer units.
+- Stock/indices quotes use the official TradingView Market Overview widget in an isolated, sandboxed child page. Stock data may be delayed. This is market viewing, not securities custody or brokerage. Third-party widget scripts never run in the wallet application's JavaScript context.
+- Phone (390px), tablet (820px) and desktop (1440px) layouts captured and individually inspected. Tablet uses two columns; desktop adds side navigation and a wider main workspace. No horizontal overflow at these widths.
+
+Sources:
+- https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-stats
+- https://docs.cdp.coinbase.com/exchange/rest-api/rate-limits
+- https://www.tradingview.com/widget-docs/widgets/watchlists/market-overview/demos/stock/
+- https://www.tradingview.com/widget-docs/faq/data/ — free widget stock data is delayed, not universally real-time.
+
+Validation limitation: this execution workspace's outbound network policy denies requests to Coinbase market domains. Consequently the production market requests are implemented against documented endpoints but a successful live feed response was not verified here. TradingView availability is likewise dependent on outbound access. No real funds or user signatures were available; automated transfer checks use injected test providers solely in the external development test script, never in shipped application code. A real-money transfer has not been executed. The optional PHP wrapper was not executed because this environment has no PHP runtime.

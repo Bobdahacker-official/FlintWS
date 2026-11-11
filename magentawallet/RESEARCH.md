@@ -25,3 +25,12 @@ No claim that a particular commercial operation is exempt from legal requirement
 ## Validation
 
 JavaScript syntax check and browser checks of responsive layouts, wallet connection, exact token values, payment review, user approval request and transaction history. Browser tests use an injected mock provider; no real funds were sent.
+
+## Interface revision — reference-led wallet layout
+
+Replaced the editorial landing-page layout with a compact dark wallet interface based on the supplied mobile wallet references. Removed flower/star motifs, promotional headlines, decorative cards and serif typography. Added persistent bottom navigation, SVG action and token icons, searchable asset rows and network-specific balances. Kept only implemented actions. No invented portfolio valuations, price changes or unsupported assets.
+
+Research informing this revision:
+- https://ethereum.org/developers/docs/design-and-ux/heuristics-for-web3/ — visible system status, scannable key information, wallet confirmation and explorer links.
+- https://www.nngroup.com/articles/progressive-disclosure/ — prioritize frequent actions; disclose secondary details when needed.
+- https://re.public.polimi.it/retrieve/4473c0d5-ea0a-4116-8549-5638f804557b/computers-14-00046-with-cover.pdf — task-based Web3 interfaces, familiar interaction patterns and clear state visualization.

@@ -337,7 +337,7 @@ def main():
     try:
         server.wait_for(r"Done \([\d.]+s\)!", 160)
         client = start_client(offline_uuid)
-        window = wait_for("official Minecraft window", focus_window, 120, client)
+        window = wait_for("official Minecraft window", focus_window, 70, client)
         xdotool("windowfocus", "--sync", window)
         server.wait_for(USERNAME + r" joined the game", 150)
         print("PASS official Minecraft 26.3 client joined Paper", flush=True)

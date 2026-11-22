@@ -185,13 +185,24 @@ def xdotool(*args):
 
 
 def focus_window():
-    output = subprocess.run(
-        ["xdotool", "search", "--onlyvisible", "--name", "Minecraft"],
-        check=False, capture_output=True, text=True,
-    )
-    if output.returncode:
+    tree = subprocess.run(
+        ["xwininfo", "-root", "-tree"], check=False, capture_output=True, text=True,
+    ).stdout
+    geometry = re.compile(r"^\s*(0x[0-9a-fA-F]+).*?\b(\d+)x(\d+)[+-]\d+[+-]\d+")
+    candidates = []
+    for line in tree.splitlines():
+        match = geometry.search(line)
+        if not match:
+            continue
+        handle, width, height = match.groups()
+        if int(width) >= 1000 and int(height) >= 700:
+            candidates.append(handle)
+    if not candidates:
         return None
-    return output.stdout.splitlines()[-1]
+    window = str(int(candidates[0], 16))
+    xdotool("windowmap", window)
+    xdotool("windowfocus", "--sync", window)
+    return window
 
 
 def native_screenshot(index, label, window, keys=None):
@@ -337,11 +348,11 @@ def main():
     try:
         server.wait_for(r"Done \([\d.]+s\)!", 160)
         client = start_client(offline_uuid)
-        window = wait_for("official Minecraft window", focus_window, 70, client)
-        xdotool("windowfocus", "--sync", window)
-        server.wait_for(USERNAME + r" joined the game", 150)
+        server.wait_for(USERNAME + r" joined the game", 100)
         print("PASS official Minecraft 26.3 client joined Paper", flush=True)
         time.sleep(5)
+        print(execute("xwininfo", "-root", "-tree", capture_output=True).stdout, flush=True)
+        window = wait_for("official Minecraft window geometry", focus_window, 20, client)
         capture(server, client, window)
     except BaseException:
         command = shutil.which("import")

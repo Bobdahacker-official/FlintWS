@@ -1,0 +1,31 @@
+bots:
+  max: 24
+  roam-radius: 20
+  activation-range: 56
+  walking-speed: 1.12
+  tab-list: true
+  # Show [Bot] before names in chat, Tab, and in-game nametags.
+  show-bot-tag: false
+  # Add enabled bots to the multiplayer server-list player count.
+  include-in-server-list-count: true
+  footsteps: true
+  right-click-info: true
+  # Optional. A collecting bot can pick up unowned dropped items near its feet.
+  allow-collection: false
+
+names:
+  # Both providers are anonymous. All traffic stays off the server tick thread.
+  use-web-apis: true
+
+chat:
+  enabled: true
+  proximity: 64
+  # Shared cooldown across the whole server, measured in seconds.
+  cooldown: 9
+  ambient-min-seconds: 40
+  ambient-max-seconds: 95
+  ambient: true
+  replies: true
+  # Direct replies, nearby conversational cues and occasional automatic greetings.
+  nearby-replies: true
+  greet-joins: true

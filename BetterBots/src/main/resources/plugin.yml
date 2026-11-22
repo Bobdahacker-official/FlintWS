@@ -1,0 +1,15 @@
+name: BetterBots
+version: 1.1.1
+main: dev.betterbots.BetterBots
+api-version: '26.3'
+description: Configurable server-side NPCs that explore, talk and carry items.
+commands:
+  betterbots:
+    description: Manage BetterBots NPCs
+    aliases: [bb]
+    usage: /betterbots help
+    permission: betterbots.admin
+permissions:
+  betterbots.admin:
+    description: Manage bot profiles and behavior
+    default: op

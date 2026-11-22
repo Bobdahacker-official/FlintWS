@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "minecraft-protocol": "1.68.0"
+  },
+  "private": true
+}

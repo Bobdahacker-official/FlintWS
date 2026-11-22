@@ -98,8 +98,20 @@ async function checkProviders() {
 
 async function main() {
   fs.writeFileSync(path.join(serverDir, 'eula.txt'), 'eula=true\n')
+  fs.writeFileSync(path.join(serverDir, 'whitelist.json'), JSON.stringify([
+    { uuid: 'c40a68b5-62d6-3a4f-b636-06d818112ab0', name: username }
+  ]))
+  const flat = JSON.stringify({
+    biome: 'minecraft:plains',
+    layers: [
+      { height: 1, block: 'minecraft:bedrock' },
+      { height: 2, block: 'minecraft:dirt' },
+      { height: 1, block: 'minecraft:grass_block' }
+    ]
+  })
   fs.writeFileSync(path.join(serverDir, 'server.properties'), [
     'server-ip=' + host, 'server-port=' + port, 'online-mode=false', 'enforce-secure-profile=false',
+    'white-list=true', 'enforce-whitelist=true', 'generator-settings=' + flat,
     'level-type=minecraft:flat', 'spawn-protection=0', 'view-distance=5', 'simulation-distance=5',
     'max-players=20', 'difficulty=normal', 'spawn-monsters=false', 'generate-structures=false'
   ].join('\n') + '\n')
@@ -124,7 +136,10 @@ async function main() {
     let clientError
     client = mc.createClient({ host, port, username, auth: 'offline', version, hideErrors: true })
     client.on('error', error => { clientError = error; console.error(error) })
-    client.on('end', reason => { if (reason && reason !== 'socketClosed') console.log('Client disconnected', reason) })
+    client.on('disconnect', packet => {
+      clientError = new Error('Disconnected: ' + (plain(packet.reason) || JSON.stringify(packet.reason)))
+    })
+    client.on('end', reason => { if (!firstPosition && !clientError) clientError = new Error('Client disconnected: ' + reason) })
     client.on('position', packet => {
       client.write('teleport_confirm', { teleportId: packet.teleportId })
       if (!firstPosition) client.write('player_loaded', {})

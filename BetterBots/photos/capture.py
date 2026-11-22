@@ -138,7 +138,8 @@ def build_courtyard(server):
         "gamerule minecraft:spawn_mobs false",
         "time set 2400",
         "weather clear",
-        f"gamemode spectator {USERNAME}",
+        f"gamemode creative {USERNAME}",
+        f"attribute {USERNAME} minecraft:gravity base set 0",
         f"tp {USERNAME} 0 -50 14 180 30",
         "forceload add -16 -16 15 15",
         "fill -14 -61 -13 14 -61 13 minecraft:polished_andesite",
@@ -242,6 +243,10 @@ def capture(server, client, window):
         ("JuniperGrove", "farmer", 9, 7),
     ]:
         add_bot(server, name, style, x, z)
+    for name in ("TorchFox", "RiverQuill", "MossLantern", "CopperVale", "JuniperGrove"):
+        start = len(server.lines)
+        server.send(f"execute if entity @e[type=minecraft:mannequin,name={name},limit=1] run say Verified mannequin {name}")
+        server.wait_for("Verified mannequin " + name, 8, start)
     server.send("setworldspawn 0 -60 0")
     server.send("bb equip TorchFox hand diamond_pickaxe")
     server.send("bb equip TorchFox head iron_helmet")
@@ -282,10 +287,17 @@ def capture(server, client, window):
     time.sleep(0.3)
     xdotool("type", "--delay", "22", "TorchFox, where are you?")
     xdotool("key", "Return")
-    server.wait_for(r"TorchFox » i'm around", 20, start)
+    label = "contextual-chat"
+    try:
+        server.wait_for(r"TorchFox » i'm around", 14, start)
+    except TimeoutError:
+        start = len(server.lines)
+        server.send("bb say TorchFox I'm just by the courtyard path.")
+        server.wait_for(r"TorchFox » I'm just by the courtyard path", 8, start)
+        label = "bot-chat-message"
     xdotool("key", "t")
     time.sleep(0.3)
-    native_screenshot(13, "contextual-chat", window)
+    native_screenshot(13, label, window)
     xdotool("key", "Escape")
 
     server.send("bb give TorchFox emerald 8")
@@ -299,9 +311,11 @@ def capture(server, client, window):
     xdotool("key", "t")
     native_screenshot(14, "bot-inventory-command", window)
     xdotool("key", "Escape")
+    start = len(server.lines)
     server.send("bb drop TorchFox 3")
     server.send("bb drop TorchFox 4")
     server.send("bb drop TorchFox 5")
+    server.wait_for(r"TorchFox dropped 3 × diamond", 8, start)
     camera(server, 3.5, -58.7, 6.2, 3.5, -59.8, 3.1)
     time.sleep(1.0)
     native_screenshot(15, "dropped-inventory-items", window)

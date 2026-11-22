@@ -1,0 +1,61 @@
+name: Publish BetterBots screenshots
+on:
+  push:
+    branches: [betterbots-gallery]
+    paths:
+      - .github/workflows/betterbots-gallery.yml
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: betterbots-gallery
+      - uses: actions/download-artifact@v4
+        with:
+          name: BetterBots-20-Minecraft-screenshots
+          run-id: 44996180162
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/betterbots-artifact
+      - name: Verify and package the original 20 screenshots
+        env:
+          SCREENSHOT_INPUT: ${{ runner.temp }}/betterbots-artifact
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, re, struct
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_STORED
+
+          pngs = sorted(Path(os.environ['SCREENSHOT_INPUT']).rglob('*.png'))
+          assert len(pngs) == 20
+          signatures = set()
+          for i, path in enumerate(pngs, 1):
+              assert re.fullmatch(f'{i:02d}-[a-z0-9-]+[.]png', path.name), path.name
+              data = path.read_bytes()
+              assert data.startswith(b'\x89PNG\r\n\x1a\n')
+              assert struct.unpack('>II', data[16:24]) == (1280, 800)
+              signatures.add(hashlib.sha256(data).digest())
+          assert len(signatures) == 20
+          output = Path('BetterBots/screenshots/BetterBots-20-Minecraft-screenshots.zip')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          with ZipFile(output, 'w', ZIP_STORED) as archive:
+              for path in pngs:
+                  archive.write(path, path.name)
+          with ZipFile(output) as archive:
+              assert len(archive.namelist()) == 20 and archive.testzip() is None
+          print('Verified 20 original screenshots in', output)
+          PY
+      - name: Publish the verified ZIP to the gallery branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add BetterBots/screenshots/BetterBots-20-Minecraft-screenshots.zip
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Publish the 20 BetterBots screenshots for direct download'
+          git push origin HEAD:refs/heads/betterbots-gallery

@@ -25,7 +25,7 @@ jobs:
       - name: Prepare virtual display and launcher
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb xauth xdotool libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 mesa-vulkan-drivers libvulkan1 vulkan-tools mesa-utils
+          sudo apt-get install -y -qq xvfb xauth xdotool libgl1-mesa-dri libglx-mesa0 libegl1 libegl-mesa0 mesa-vulkan-drivers libvulkan1 vulkan-tools mesa-utils x11-utils libflite-dev
           python -m pip install --disable-pip-version-check minecraft-launcher-lib==8.0
       - name: Download the official Minecraft client and Paper server
         working-directory: BetterBots/photos
@@ -43,6 +43,8 @@ jobs:
           vk_driver=$(find /usr/share/vulkan/icd.d -iname 'lvp*.json' -print -quit)
           test -n "$vk_driver"
           export VK_DRIVER_FILES="$vk_driver"
+          export SDL_VIDEO_DRIVER=x11
+          export SDL_VIDEODRIVER=x11
           export SDL_VIDEO_X11_FORCE_EGL=1
           xvfb-run -a -s '-screen 0 1440x900x24 +extension GLX +render -noreset' sh -c 'vulkaninfo --summary && python capture.py'
       - name: Upload screenshots
